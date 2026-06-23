@@ -8,6 +8,7 @@ import type {
   BodyState,
   SimulationParams,
   SimulationSnapshot,
+  ViewAnchorMode,
 } from '../types/simulation';
 
 interface TrailPoint {
@@ -15,21 +16,42 @@ interface TrailPoint {
   y: number;
 }
 
+type DragTarget =
+  | { kind: 'body'; index: number }
+  | { kind: 'velocity'; index: number }
+  | null;
+
 interface ThreeBodyCanvasProps {
   initialBodies: BodyState[];
   params: SimulationParams;
+  viewAnchorMode: ViewAnchorMode;
   isRunning: boolean;
   maxTrailPoints: number;
   onDebugSnapshotChange: (snapshot: SimulationSnapshot) => void;
   onBodiesCommit: (bodies: BodyState[]) => void;
+  onEscapeThresholdExceeded: () => void;
   width: number;
   height: number;
 }
 
 const BODY_COLORS = ['#f4c16d', '#8cc9de', '#ef8aa1'];
+const TRAIL_COLORS = [
+  'hsla(38, 88%, 72%, ALPHA)',
+  'hsla(196, 82%, 70%, ALPHA)',
+  'hsla(344, 82%, 74%, ALPHA)',
+];
 const POSITION_MIN = -400;
 const POSITION_MAX = 400;
-const TRAIL_LAYER_COUNT = 8;
+const TRAIL_LAYER_COUNT = 10;
+const TRAIL_RECORD_INTERVAL = 2;
+const TRAIL_HEAD_POINTS = 12;
+const VIEWPORT_PADDING = 28;
+const VISIBLE_WORLD_HALF_WIDTH = 360;
+const VISIBLE_WORLD_HALF_HEIGHT = 260;
+const ESCAPE_DISTANCE = 1200;
+const FIXED_START_REFERENCE = { x: 0, y: 0 };
+const VELOCITY_ARROW_SCALE = 26;
+const VELOCITY_HANDLE_RADIUS = 12;
 
 interface Viewport {
   centerX: number;
@@ -58,16 +80,18 @@ function buildViewport(
   width: number,
   height: number,
   bodies: BodyState[],
+  viewAnchorMode: ViewAnchorMode,
+  fixedReferencePoint: { x: number; y: number },
 ) {
-  const anchorBody = bodies[0];
-  const relativeXs = bodies.map((body) => Math.abs(body.x - anchorBody.x));
-  const relativeYs = bodies.map((body) => Math.abs(body.y - anchorBody.y));
-  const spanX = Math.max(1, Math.max(...relativeXs) * 2);
-  const spanY = Math.max(1, Math.max(...relativeYs) * 2);
-  const padding = 80;
+  const anchorBody =
+    viewAnchorMode === 'followA'
+      ? { x: bodies[0].x, y: bodies[0].y }
+      : viewAnchorMode === 'centerOfMass'
+        ? calculateCenterOfMass(bodies)
+        : fixedReferencePoint;
   const scale = Math.min(
-    (width - padding * 2) / spanX,
-    (height - padding * 2) / spanY,
+    (width - VIEWPORT_PADDING * 2) / (VISIBLE_WORLD_HALF_WIDTH * 2),
+    (height - VIEWPORT_PADDING * 2) / (VISIBLE_WORLD_HALF_HEIGHT * 2),
   );
 
   return {
@@ -95,6 +119,42 @@ function hitRadius(mass: number, maxMass: number) {
 
 function clamp(value: number, minimum: number, maximum: number) {
   return Math.min(maximum, Math.max(minimum, value));
+}
+
+function hasEscapedThreshold(bodies: BodyState[]) {
+  const anchorBody = bodies[0];
+
+  return bodies.slice(1).some((body) => {
+    const dx = body.x - anchorBody.x;
+    const dy = body.y - anchorBody.y;
+    return Math.hypot(dx, dy) > ESCAPE_DISTANCE;
+  });
+}
+
+function getBodyCanvasPosition(
+  body: BodyState,
+  viewport: Viewport,
+  width: number,
+  height: number,
+) {
+  return {
+    x: toCanvasX(body.x, width, viewport.centerX, viewport.scale),
+    y: toCanvasY(body.y, height, viewport.centerY, viewport.scale),
+  };
+}
+
+function getVelocityTipPosition(
+  body: BodyState,
+  viewport: Viewport,
+  width: number,
+  height: number,
+) {
+  const bodyPosition = getBodyCanvasPosition(body, viewport, width, height);
+
+  return {
+    x: bodyPosition.x + body.vx * VELOCITY_ARROW_SCALE,
+    y: bodyPosition.y - body.vy * VELOCITY_ARROW_SCALE,
+  };
 }
 
 function drawTrail(
@@ -125,16 +185,16 @@ function drawTrail(
     }
 
     const layerProgress = (layerIndex + 1) / TRAIL_LAYER_COUNT;
-    const alpha = 0.05 + Math.pow(layerProgress, 1.24) * 0.56;
-    const lineWidth = 0.6 + Math.pow(layerProgress, 1.08) * 2.35;
+    const alpha = 0.04 + Math.pow(layerProgress, 1.18) * 0.72;
+    const lineWidth = 0.9 + Math.pow(layerProgress, 1.05) * 3.4;
 
     context.strokeStyle = color.replace('ALPHA', alpha.toFixed(3));
     context.lineWidth = lineWidth;
     context.shadowBlur =
-      layerIndex >= TRAIL_LAYER_COUNT - 3 ? 10 + layerIndex * 2 : 0;
+      layerIndex >= TRAIL_LAYER_COUNT - 3 ? 12 + layerIndex * 2 : 0;
     context.shadowColor =
       layerIndex >= TRAIL_LAYER_COUNT - 3
-        ? color.replace('ALPHA', (alpha * 0.58).toFixed(3))
+        ? color.replace('ALPHA', (alpha * 0.64).toFixed(3))
         : 'transparent';
     context.beginPath();
     context.moveTo(segment[0].x, segment[0].y);
@@ -166,13 +226,41 @@ function drawTrail(
     context.stroke();
   }
 
-  const tipPoint = trail[trail.length - 1];
-  context.fillStyle = color.replace('ALPHA', '0.82');
-  context.shadowBlur = 14;
-  context.shadowColor = color.replace('ALPHA', '0.44');
-  context.beginPath();
-  context.arc(tipPoint.x, tipPoint.y, 2.8, 0, Math.PI * 2);
-  context.fill();
+  const headSegment = trail.slice(-TRAIL_HEAD_POINTS);
+  if (headSegment.length >= 2) {
+    context.strokeStyle = color.replace('ALPHA', '0.92');
+    context.lineWidth = 5.4;
+    context.shadowBlur = 18;
+    context.shadowColor = color.replace('ALPHA', '0.62');
+    context.beginPath();
+    context.moveTo(headSegment[0].x, headSegment[0].y);
+
+    let previousPoint = headSegment[0];
+
+    for (let index = 1; index < headSegment.length; index += 1) {
+      const currentPoint = headSegment[index];
+      const midpointX = (previousPoint.x + currentPoint.x) / 2;
+      const midpointY = (previousPoint.y + currentPoint.y) / 2;
+
+      context.quadraticCurveTo(
+        previousPoint.x,
+        previousPoint.y,
+        midpointX,
+        midpointY,
+      );
+
+      previousPoint = currentPoint;
+    }
+
+    const lastPoint = headSegment[headSegment.length - 1];
+    context.quadraticCurveTo(
+      previousPoint.x,
+      previousPoint.y,
+      lastPoint.x,
+      lastPoint.y,
+    );
+    context.stroke();
+  }
 
   context.restore();
 }
@@ -184,6 +272,7 @@ function drawFrame(
   bodies: BodyState[],
   trails: TrailPoint[][],
   viewport: Viewport,
+  showVelocityArrows: boolean,
 ) {
   drawBackground(context, width, height);
 
@@ -191,7 +280,7 @@ function drawFrame(
   const centerOfMass = calculateCenterOfMass(bodies);
 
   trails.forEach((trail, index) => {
-    drawTrail(context, trail, `${BODY_COLORS[index]}AA`.toLowerCase().replace('aa', 'ALPHA'));
+    drawTrail(context, trail, TRAIL_COLORS[index]);
   });
 
   const centerX = toCanvasX(centerOfMass.x, width, viewport.centerX, viewport.scale);
@@ -207,8 +296,7 @@ function drawFrame(
   context.stroke();
 
   bodies.forEach((body, index) => {
-    const x = toCanvasX(body.x, width, viewport.centerX, viewport.scale);
-    const y = toCanvasY(body.y, height, viewport.centerY, viewport.scale);
+    const { x, y } = getBodyCanvasPosition(body, viewport, width, height);
     const radius = bodyRadius(body.mass, maxMass);
     const gradient = context.createRadialGradient(
       x - radius * 0.35,
@@ -237,15 +325,73 @@ function drawFrame(
     context.textAlign = 'center';
     context.fillText(body.id, x, y - radius - 10);
   });
+
+  if (!showVelocityArrows) {
+    return;
+  }
+
+  bodies.forEach((body, index) => {
+    const bodyPosition = getBodyCanvasPosition(body, viewport, width, height);
+    const tipPosition = getVelocityTipPosition(body, viewport, width, height);
+    const dx = tipPosition.x - bodyPosition.x;
+    const dy = tipPosition.y - bodyPosition.y;
+    const arrowLength = Math.hypot(dx, dy);
+
+    if (arrowLength < 4) {
+      return;
+    }
+
+    const unitX = dx / arrowLength;
+    const unitY = dy / arrowLength;
+    const headLength = 12;
+    const headWidth = 7;
+    const arrowColor = TRAIL_COLORS[index].replace('ALPHA', '0.94');
+    const glowColor = TRAIL_COLORS[index].replace('ALPHA', '0.54');
+
+    context.save();
+    context.strokeStyle = arrowColor;
+    context.fillStyle = arrowColor;
+    context.lineWidth = 3.2;
+    context.lineCap = 'round';
+    context.lineJoin = 'round';
+    context.shadowBlur = 14;
+    context.shadowColor = glowColor;
+
+    context.beginPath();
+    context.moveTo(bodyPosition.x, bodyPosition.y);
+    context.lineTo(tipPosition.x, tipPosition.y);
+    context.stroke();
+
+    context.beginPath();
+    context.moveTo(tipPosition.x, tipPosition.y);
+    context.lineTo(
+      tipPosition.x - unitX * headLength - unitY * headWidth,
+      tipPosition.y - unitY * headLength + unitX * headWidth,
+    );
+    context.lineTo(
+      tipPosition.x - unitX * headLength + unitY * headWidth,
+      tipPosition.y - unitY * headLength - unitX * headWidth,
+    );
+    context.closePath();
+    context.fill();
+
+    context.fillStyle = 'rgba(236, 235, 228, 0.92)';
+    context.beginPath();
+    context.arc(tipPosition.x, tipPosition.y, 4, 0, Math.PI * 2);
+    context.fill();
+    context.restore();
+  });
 }
 
 export function ThreeBodyCanvas({
   initialBodies,
   params,
+  viewAnchorMode,
   isRunning,
   maxTrailPoints,
   onDebugSnapshotChange,
   onBodiesCommit,
+  onEscapeThresholdExceeded,
   width,
   height,
 }: ThreeBodyCanvasProps) {
@@ -261,12 +407,13 @@ export function ThreeBodyCanvas({
     scale: 1,
   });
   const dragViewportRef = useRef<Viewport | null>(null);
-  const dragBodyIndexRef = useRef<number | null>(null);
+  const dragTargetRef = useRef<DragTarget>(null);
+  const trailStepCounterRef = useRef(0);
+  const fixedReferencePointRef = useRef(FIXED_START_REFERENCE);
 
   function recordTrailPoints(
     bodies: BodyState[],
     viewport: Viewport,
-    resetIndex?: number,
   ) {
     trailsRef.current = trailsRef.current.map((trail, index) => {
       const body = bodies[index];
@@ -275,19 +422,46 @@ export function ThreeBodyCanvas({
         y: toCanvasY(body.y, height, viewport.centerY, viewport.scale),
       };
 
-      if (resetIndex === index) {
-        return [nextPoint];
-      }
-
       const nextTrail = trail.concat(nextPoint);
       return nextTrail.slice(-maxTrailPoints);
     });
   }
 
+  function resetDraggedTrail(
+    bodies: BodyState[],
+    viewport: Viewport,
+    draggedBodyIndex: number,
+  ) {
+    trailsRef.current = trailsRef.current.map((trail, index) => {
+      if (index !== draggedBodyIndex) {
+        return trail;
+      }
+
+      const body = bodies[index];
+      return [
+        {
+          x: toCanvasX(body.x, width, viewport.centerX, viewport.scale),
+          y: toCanvasY(body.y, height, viewport.centerY, viewport.scale),
+        },
+      ];
+    });
+  }
+
   useEffect(() => {
     statesRef.current = cloneBodies(initialBodies);
-    const viewport = buildViewport(width, height, initialBodies);
+    fixedReferencePointRef.current =
+      viewAnchorMode === 'fixedStart'
+        ? FIXED_START_REFERENCE
+        : { x: initialBodies[0].x, y: initialBodies[0].y };
+    const viewport = buildViewport(
+      width,
+      height,
+      initialBodies,
+      viewAnchorMode,
+      fixedReferencePointRef.current,
+    );
     viewportRef.current = viewport;
+    trailStepCounterRef.current = 0;
     trailsRef.current = initialBodies.map((body) => [
       {
         x: toCanvasX(body.x, width, viewport.centerX, viewport.scale),
@@ -295,7 +469,15 @@ export function ThreeBodyCanvas({
       },
     ]);
     onDebugSnapshotChange(buildSnapshot(statesRef.current, params));
-  }, [height, initialBodies, maxTrailPoints, onDebugSnapshotChange, params, width]);
+  }, [
+    height,
+    initialBodies,
+    maxTrailPoints,
+    onDebugSnapshotChange,
+    params,
+    viewAnchorMode,
+    width,
+  ]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -321,18 +503,41 @@ export function ThreeBodyCanvas({
 
         for (let step = 0; step < 3; step += 1) {
           nextBodies = integrateBodies(nextBodies, params);
+          trailStepCounterRef.current += 1;
+
+          if (trailStepCounterRef.current % TRAIL_RECORD_INTERVAL === 0) {
+            const runningViewport =
+              dragViewportRef.current ??
+              buildViewport(
+                width,
+                height,
+                nextBodies,
+                viewAnchorMode,
+                fixedReferencePointRef.current,
+              );
+            recordTrailPoints(nextBodies, runningViewport);
+          }
         }
 
         statesRef.current = nextBodies;
+
+        if (hasEscapedThreshold(nextBodies)) {
+          onEscapeThresholdExceeded();
+        }
       }
 
       const viewport =
         dragViewportRef.current ??
-        buildViewport(width, height, statesRef.current);
+        buildViewport(
+          width,
+          height,
+          statesRef.current,
+          viewAnchorMode,
+          fixedReferencePointRef.current,
+        );
       viewportRef.current = viewport;
 
       if (isRunning) {
-        recordTrailPoints(statesRef.current, viewport);
         onDebugSnapshotChange(buildSnapshot(statesRef.current, params));
       }
 
@@ -343,6 +548,7 @@ export function ThreeBodyCanvas({
         statesRef.current,
         trailsRef.current,
         viewport,
+        !isRunning,
       );
       animationFrameRef.current = window.requestAnimationFrame(render);
     }
@@ -355,12 +561,21 @@ export function ThreeBodyCanvas({
         window.cancelAnimationFrame(animationFrameRef.current);
       }
     };
-  }, [height, isRunning, maxTrailPoints, onDebugSnapshotChange, params, width]);
+  }, [
+    height,
+    isRunning,
+    maxTrailPoints,
+    onDebugSnapshotChange,
+    onEscapeThresholdExceeded,
+    params,
+    viewAnchorMode,
+    width,
+  ]);
 
-  function updateDraggedBody(clientX: number, clientY: number) {
+  function updateDragTarget(clientX: number, clientY: number) {
     const canvas = canvasRef.current;
-    const dragBodyIndex = dragBodyIndexRef.current;
-    if (!canvas || dragBodyIndex === null) {
+    const dragTarget = dragTargetRef.current;
+    if (!canvas || !dragTarget) {
       return;
     }
 
@@ -379,17 +594,34 @@ export function ThreeBodyCanvas({
       POSITION_MAX,
     );
 
-    statesRef.current = statesRef.current.map((body, index) =>
-      index === dragBodyIndex
-        ? {
-            ...body,
-            x: nextX,
-            y: nextY,
-          }
-        : body,
-    );
+    if (dragTarget.kind === 'body') {
+      statesRef.current = statesRef.current.map((body, index) =>
+        index === dragTarget.index
+          ? {
+              ...body,
+              x: nextX,
+              y: nextY,
+            }
+          : body,
+      );
 
-    recordTrailPoints(statesRef.current, viewport, dragBodyIndex);
+      resetDraggedTrail(statesRef.current, viewport, dragTarget.index);
+      onDebugSnapshotChange(buildSnapshot(statesRef.current, params));
+      return;
+    }
+
+    statesRef.current = statesRef.current.map((body, index) => {
+      if (index !== dragTarget.index) {
+        return body;
+      }
+
+      const bodyPosition = getBodyCanvasPosition(body, viewport, width, height);
+      return {
+        ...body,
+        vx: (canvasX - bodyPosition.x) / VELOCITY_ARROW_SCALE,
+        vy: (bodyPosition.y - canvasY) / VELOCITY_ARROW_SCALE,
+      };
+    });
 
     onDebugSnapshotChange(buildSnapshot(statesRef.current, params));
   }
@@ -412,37 +644,50 @@ export function ThreeBodyCanvas({
 
     for (let index = statesRef.current.length - 1; index >= 0; index -= 1) {
       const body = statesRef.current[index];
-      const x = toCanvasX(body.x, width, viewport.centerX, viewport.scale);
-      const y = toCanvasY(body.y, height, viewport.centerY, viewport.scale);
+      const tipPosition = getVelocityTipPosition(body, viewport, width, height);
+      const handleDistance = Math.hypot(canvasX - tipPosition.x, canvasY - tipPosition.y);
+
+      if (handleDistance <= VELOCITY_HANDLE_RADIUS) {
+        dragTargetRef.current = { kind: 'velocity', index };
+        dragViewportRef.current = viewport;
+        canvas.setPointerCapture(event.pointerId);
+        updateDragTarget(event.clientX, event.clientY);
+        return;
+      }
+    }
+
+    for (let index = statesRef.current.length - 1; index >= 0; index -= 1) {
+      const body = statesRef.current[index];
+      const { x, y } = getBodyCanvasPosition(body, viewport, width, height);
       const radius = hitRadius(body.mass, maxMass);
       const distance = Math.hypot(canvasX - x, canvasY - y);
 
       if (distance <= radius) {
-        dragBodyIndexRef.current = index;
+        dragTargetRef.current = { kind: 'body', index };
         dragViewportRef.current = viewport;
         canvas.setPointerCapture(event.pointerId);
-        updateDraggedBody(event.clientX, event.clientY);
+        updateDragTarget(event.clientX, event.clientY);
         return;
       }
     }
   }
 
   function handlePointerMove(event: React.PointerEvent<HTMLCanvasElement>) {
-    if (dragBodyIndexRef.current === null) {
+    if (!dragTargetRef.current) {
       return;
     }
 
-    updateDraggedBody(event.clientX, event.clientY);
+    updateDragTarget(event.clientX, event.clientY);
   }
 
   function handlePointerUp(event: React.PointerEvent<HTMLCanvasElement>) {
     const canvas = canvasRef.current;
-    if (dragBodyIndexRef.current === null || !canvas) {
+    if (!dragTargetRef.current || !canvas) {
       return;
     }
 
-    updateDraggedBody(event.clientX, event.clientY);
-    dragBodyIndexRef.current = null;
+    updateDragTarget(event.clientX, event.clientY);
+    dragTargetRef.current = null;
     dragViewportRef.current = null;
     onBodiesCommit(statesRef.current.map((body) => ({ ...body })));
 

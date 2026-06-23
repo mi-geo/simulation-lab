@@ -330,11 +330,9 @@ export default function App() {
       <section className="canvas-card">
         <div className="canvas-copy">
           <p className="canvas-kicker">Motion Study</p>
-          <h2>Nearby initial conditions separate into visibly different paths.</h2>
+          <h2>Nearly identical starting states can diverge into very different motion.</h2>
           <p>
-            This canvas compares a family of double pendulums whose starting
-            states are nearly identical. Use the setup panel to tune the offset,
-            rod split, and other initial conditions before running the study.
+            The trails make sensitivity to initial conditions visible.
           </p>
         </div>
 

@@ -1,4 +1,5 @@
 export type BodyId = 'A' | 'B' | 'C';
+export type ViewAnchorMode = 'followA' | 'fixedStart' | 'centerOfMass';
 
 export interface BodyState {
   id: BodyId;
@@ -19,14 +20,15 @@ export interface BodySetupValues {
   mass: number;
   x: number;
   y: number;
-  vx: number;
-  vy: number;
+  speed: number;
+  angle: number;
 }
 
 export interface SetupValues {
   gravitationalConstant: number;
   softening: number;
   timeStep: number;
+  viewAnchorMode: ViewAnchorMode;
   bodies: Record<BodyId, BodySetupValues>;
 }
 
@@ -34,14 +36,15 @@ export interface BodyFormValues {
   mass: string;
   x: string;
   y: string;
-  vx: string;
-  vy: string;
+  speed: string;
+  angle: string;
 }
 
 export interface SetupFormValues {
   gravitationalConstant: string;
   softening: string;
   timeStep: string;
+  viewAnchorMode: ViewAnchorMode;
   bodies: Record<BodyId, BodyFormValues>;
 }
 
@@ -49,8 +52,8 @@ export interface BodySetupErrors {
   mass?: string;
   x?: string;
   y?: string;
-  vx?: string;
-  vy?: string;
+  speed?: string;
+  angle?: string;
 }
 
 export interface SetupErrors {

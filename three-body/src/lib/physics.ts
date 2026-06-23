@@ -11,11 +11,12 @@ const BODY_IDS: BodyId[] = ['A', 'B', 'C'];
 export const DEFAULT_SETUP_VALUES: SetupValues = {
   gravitationalConstant: 0.8,
   softening: 12,
-  timeStep: 0.03,
+  timeStep: 0.12,
+  viewAnchorMode: 'centerOfMass',
   bodies: {
-    A: { mass: 2400, x: 0, y: 0, vx: 0, vy: -0.036 },
-    B: { mass: 24, x: 220, y: 0, vx: 0, vy: 2.954 },
-    C: { mass: 4, x: 260, y: 0, vx: 0, vy: 3.647 },
+    A: { mass: 1000, x: 0, y: 0, speed: 0.036, angle: -90 },
+    B: { mass: 200, x: 220, y: 0, speed: 2.954, angle: 90 },
+    C: { mass: 20, x: 260, y: 0, speed: 3.647, angle: 90 },
   },
 };
 
@@ -28,6 +29,22 @@ interface BodyDerivative {
 
 function cloneBody(body: BodyState): BodyState {
   return { ...body };
+}
+
+function degreesToRadians(value: number) {
+  return (value * Math.PI) / 180;
+}
+
+function velocityFromPolar(speed: number, angleDegrees: number) {
+  const angle = degreesToRadians(angleDegrees);
+  return {
+    vx: speed * Math.cos(angle),
+    vy: speed * Math.sin(angle),
+  };
+}
+
+function softenedDistance(dx: number, dy: number, softening: number) {
+  return Math.max(Math.hypot(dx, dy), softening);
 }
 
 function computeAccelerations(
@@ -45,10 +62,9 @@ function computeAccelerations(
 
       const dx = otherBody.x - body.x;
       const dy = otherBody.y - body.y;
-      const distanceSquared =
-        dx * dx + dy * dy + params.softening * params.softening;
-      const distanceCubed = Math.pow(distanceSquared, 1.5);
-      const scale = (params.gravitationalConstant * otherBody.mass) / distanceCubed;
+      const distance = softenedDistance(dx, dy, params.softening);
+      const scale =
+        (params.gravitationalConstant * otherBody.mass) / Math.pow(distance, 3);
 
       ax += dx * scale;
       ay += dy * scale;
@@ -87,10 +103,19 @@ function applyDerivatives(
 }
 
 export function buildBodiesFromSetup(values: SetupValues): BodyState[] {
-  return BODY_IDS.map((id) => ({
-    id,
-    ...values.bodies[id],
-  }));
+  return BODY_IDS.map((id) => {
+    const body = values.bodies[id];
+    const velocity = velocityFromPolar(body.speed, body.angle);
+
+    return {
+      id,
+      mass: body.mass,
+      x: body.x,
+      y: body.y,
+      vx: velocity.vx,
+      vy: velocity.vy,
+    };
+  });
 }
 
 export function buildParamsFromSetup(values: SetupValues): SimulationParams {
@@ -149,9 +174,7 @@ export function calculateEnergy(
       const otherBody = bodies[otherIndex];
       const dx = otherBody.x - body.x;
       const dy = otherBody.y - body.y;
-      const distance = Math.sqrt(
-        dx * dx + dy * dy + params.softening * params.softening,
-      );
+      const distance = softenedDistance(dx, dy, params.softening);
 
       potentialEnergy -=
         (params.gravitationalConstant * body.mass * otherBody.mass) / distance;
@@ -210,26 +233,19 @@ export function createRandomSetupValues(): SetupValues {
       mass: Math.round(source.mass * massScale),
       x: source.x + (Math.random() - 0.5) * 80,
       y: source.y + (Math.random() - 0.5) * 80,
-      vx: source.vx + (Math.random() - 0.5) * 0.5,
-      vy: source.vy + (Math.random() - 0.5) * 0.5,
+      speed: Math.max(0, source.speed + (Math.random() - 0.5) * 0.5),
+      angle: source.angle + (Math.random() - 0.5) * 24,
     };
 
     return collection;
   }, {} as SetupValues['bodies']);
-
-  const totalMomentumX =
-    nextBodies.B.mass * nextBodies.B.vx + nextBodies.C.mass * nextBodies.C.vx;
-  const totalMomentumY =
-    nextBodies.B.mass * nextBodies.B.vy + nextBodies.C.mass * nextBodies.C.vy;
-
-  nextBodies.A.vx = -totalMomentumX / nextBodies.A.mass;
-  nextBodies.A.vy = -totalMomentumY / nextBodies.A.mass;
 
   return {
     gravitationalConstant:
       DEFAULT_SETUP_VALUES.gravitationalConstant + (Math.random() - 0.5) * 0.2,
     softening: DEFAULT_SETUP_VALUES.softening + (Math.random() - 0.5) * 4,
     timeStep: DEFAULT_SETUP_VALUES.timeStep,
+    viewAnchorMode: DEFAULT_SETUP_VALUES.viewAnchorMode,
     bodies: nextBodies,
   };
 }

@@ -1,5 +1,5 @@
 :root {
-  font-family: Georgia, "Times New Roman", serif;
+  font-family: "Instrument Sans", "Segoe UI", sans-serif;
   color: #ecebe4;
   background:
     radial-gradient(circle at top, rgba(88, 181, 214, 0.14), transparent 30%),
@@ -45,6 +45,8 @@ button {
 
 .hero h1 {
   margin: 0;
+  font-family: "Instrument Serif", Georgia, serif;
+  font-weight: 400;
   font-size: clamp(2.7rem, 6vw, 5rem);
   line-height: 0.95;
   letter-spacing: -0.04em;
@@ -85,7 +87,8 @@ button {
 
 .control-panel button:disabled,
 .setup-header button:disabled,
-.setup-field input:disabled {
+.setup-field input:disabled,
+.setup-field select:disabled {
   opacity: 0.55;
   cursor: not-allowed;
 }
@@ -110,6 +113,8 @@ button {
 
 .intro-panel h2 {
   margin: 0 0 12px;
+  font-family: "Instrument Serif", Georgia, serif;
+  font-weight: 400;
   font-size: 1.8rem;
   color: #ecebe4;
 }
@@ -118,7 +123,6 @@ button {
 .intro-note {
   margin: 0 0 14px;
   color: #c7d0d8;
-  font-family: "Times New Roman", Times, serif;
   font-size: 1.03rem;
 }
 
@@ -182,6 +186,8 @@ button {
 
 .canvas-copy h2 {
   margin: 0 0 8px;
+  font-family: "Instrument Serif", Georgia, serif;
+  font-weight: 400;
   font-size: clamp(1.4rem, 3vw, 2rem);
   color: #ecebe4;
 }
@@ -230,6 +236,8 @@ button {
 
 .setup-header h2 {
   margin: 0;
+  font-family: "Instrument Serif", Georgia, serif;
+  font-weight: 400;
   font-size: clamp(1.35rem, 3vw, 1.9rem);
   color: #ecebe4;
 }
@@ -258,11 +266,20 @@ button {
   gap: 16px;
 }
 
+.body-matrix-card,
 .body-card {
   padding: 16px;
   border-radius: 16px;
   background: rgba(16, 28, 37, 0.74);
   border: 1px solid rgba(130, 149, 166, 0.18);
+}
+
+.body-matrix-card {
+  margin-bottom: 16px;
+}
+
+.view-anchor-card {
+  margin-bottom: 16px;
 }
 
 .body-card-header {
@@ -279,8 +296,93 @@ button {
 
 .body-card h3 {
   margin: 0;
+  font-family: "Instrument Serif", Georgia, serif;
+  font-weight: 400;
   font-size: 1.15rem;
   color: #ecebe4;
+}
+
+.anchor-button-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.anchor-option-button,
+.system-settings-toggle {
+  padding: 10px 14px;
+  border: 1px solid rgba(130, 149, 166, 0.26);
+  border-radius: 999px;
+  background: rgba(10, 18, 25, 0.74);
+  color: #ecebe4;
+  cursor: pointer;
+  font: inherit;
+  transition:
+    transform 140ms ease,
+    border-color 140ms ease,
+    background 140ms ease;
+}
+
+.anchor-option-button:hover,
+.system-settings-toggle:hover {
+  background: rgba(21, 34, 45, 0.92);
+  border-color: rgba(140, 201, 222, 0.42);
+  transform: translateY(-1px);
+}
+
+.anchor-option-button-active {
+  border-color: rgba(140, 201, 222, 0.62);
+  background: rgba(34, 56, 71, 0.92);
+  box-shadow: inset 0 0 0 1px rgba(140, 201, 222, 0.18);
+}
+
+.anchor-note {
+  margin: 12px 0 0;
+  color: #8ea0af;
+}
+
+.body-matrix {
+  display: grid;
+  grid-template-columns: minmax(90px, 110px) repeat(5, minmax(0, 1fr));
+  gap: 10px;
+  align-items: start;
+}
+
+.body-matrix-header,
+.body-matrix-label {
+  padding: 10px 8px;
+}
+
+.body-matrix-header span,
+.body-matrix-label span {
+  display: block;
+  color: #ecebe4;
+}
+
+.body-matrix-header span {
+  font-size: 0.92rem;
+}
+
+.body-matrix-header small {
+  display: block;
+  margin-top: 4px;
+  color: #8ea0af;
+  font-size: 0.73rem;
+  line-height: 1.35;
+}
+
+.body-matrix-label {
+  align-self: stretch;
+  border-radius: 12px;
+  background: rgba(21, 34, 45, 0.44);
+  border: 1px solid rgba(130, 149, 166, 0.12);
+}
+
+.body-matrix-row-label {
+  display: flex;
+  align-items: center;
+  min-height: 100%;
+  font-size: 0.95rem;
 }
 
 .setup-field {
@@ -320,6 +422,17 @@ button {
   font: inherit;
 }
 
+.setup-field select {
+  width: 100%;
+  margin-bottom: 8px;
+  padding: 10px 12px;
+  border: 1px solid rgba(130, 149, 166, 0.26);
+  border-radius: 10px;
+  background: rgba(10, 18, 25, 0.74);
+  color: #ecebe4;
+  font: inherit;
+}
+
 .setup-field-invalid {
   border-color: rgba(219, 106, 106, 0.42);
   background: rgba(41, 22, 29, 0.7);
@@ -341,6 +454,22 @@ button {
 
 .setup-note {
   margin: 14px 0 0;
+}
+
+.setup-settings-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.setup-settings-header .body-card-header {
+  margin-bottom: 0;
+}
+
+.setup-settings-card .setup-grid-global {
+  margin-top: 14px;
+  margin-bottom: 0;
 }
 
 .info-panel {
@@ -405,10 +534,42 @@ button {
     flex-direction: column;
   }
 
+  .setup-settings-header {
+    flex-direction: column;
+  }
+
+  .body-matrix {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+
+  .body-matrix-header {
+    display: none;
+  }
+
+  .body-matrix-label {
+    padding: 0;
+    background: none;
+    border: 0;
+  }
+
+  .body-matrix-row-label {
+    margin-top: 8px;
+    padding: 0;
+  }
+
+  .body-matrix-row-label span {
+    color: #8cc9de;
+    font-size: 0.82rem;
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+  }
+
   .canvas-card,
   .setup-panel,
   .info-panel,
   .intro-panel,
+  .body-matrix-card,
   .body-card {
     padding: 14px;
   }

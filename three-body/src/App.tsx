@@ -17,6 +17,7 @@ import type {
   SetupErrors,
   SetupFormValues,
   SetupValues,
+  ViewAnchorMode,
 } from './types/simulation';
 
 const CANVAS_WIDTH = 720;
@@ -25,18 +26,49 @@ const MAX_TRAIL_POINTS = 300;
 
 const BODY_IDS: BodyId[] = ['A', 'B', 'C'];
 
+function radiansToDegrees(value: number) {
+  return (value * 180) / Math.PI;
+}
+
+function normalizeAngleDegrees(value: number) {
+  let normalizedValue = value;
+
+  while (normalizedValue > 180) {
+    normalizedValue -= 360;
+  }
+
+  while (normalizedValue <= -180) {
+    normalizedValue += 360;
+  }
+
+  return normalizedValue;
+}
+
+function polarFromVelocity(vx: number, vy: number) {
+  return {
+    speed: Math.sqrt(vx * vx + vy * vy),
+    angle: normalizeAngleDegrees(radiansToDegrees(Math.atan2(vy, vx))),
+  };
+}
+
+function formatDisplayNumber(value: number) {
+  const roundedValue = Number(value.toFixed(3));
+  return String(roundedValue);
+}
+
 function formatSetupValues(values: SetupValues): SetupFormValues {
   return {
-    gravitationalConstant: String(values.gravitationalConstant),
-    softening: String(values.softening),
-    timeStep: String(values.timeStep),
+    gravitationalConstant: formatDisplayNumber(values.gravitationalConstant),
+    softening: formatDisplayNumber(values.softening),
+    timeStep: formatDisplayNumber(values.timeStep),
+    viewAnchorMode: values.viewAnchorMode,
     bodies: BODY_IDS.reduce((collection, bodyId) => {
       collection[bodyId] = {
-        mass: String(values.bodies[bodyId].mass),
-        x: String(values.bodies[bodyId].x),
-        y: String(values.bodies[bodyId].y),
-        vx: String(values.bodies[bodyId].vx),
-        vy: String(values.bodies[bodyId].vy),
+        mass: formatDisplayNumber(values.bodies[bodyId].mass),
+        x: formatDisplayNumber(values.bodies[bodyId].x),
+        y: formatDisplayNumber(values.bodies[bodyId].y),
+        speed: formatDisplayNumber(values.bodies[bodyId].speed),
+        angle: formatDisplayNumber(values.bodies[bodyId].angle),
       };
       return collection;
     }, {} as SetupFormValues['bodies']),
@@ -75,10 +107,11 @@ function validateSetup(values: SetupFormValues) {
     gravitationalConstant: 0,
     softening: 0,
     timeStep: 0,
+    viewAnchorMode: values.viewAnchorMode,
     bodies: {
-      A: { mass: 0, x: 0, y: 0, vx: 0, vy: 0 },
-      B: { mass: 0, x: 0, y: 0, vx: 0, vy: 0 },
-      C: { mass: 0, x: 0, y: 0, vx: 0, vy: 0 },
+      A: { mass: 0, x: 0, y: 0, speed: 0, angle: 0 },
+      B: { mass: 0, x: 0, y: 0, speed: 0, angle: 0 },
+      C: { mass: 0, x: 0, y: 0, speed: 0, angle: 0 },
     },
   };
 
@@ -106,10 +139,21 @@ function validateSetup(values: SetupFormValues) {
   const timeStepResult = parseNumber(values.timeStep);
   if (!timeStepResult.isValid || timeStepResult.value === undefined) {
     errors.timeStep = timeStepResult.error;
-  } else if (timeStepResult.value < 0.001 || timeStepResult.value > 0.05) {
-    errors.timeStep = 'Use 0.001 to 0.05';
+  } else if (timeStepResult.value < 0.01 || timeStepResult.value > 0.5) {
+    errors.timeStep = 'Use 0.01 to 0.5';
   } else {
     parsedValues.timeStep = timeStepResult.value;
+  }
+
+  if (
+    values.viewAnchorMode !== 'followA' &&
+    values.viewAnchorMode !== 'fixedStart' &&
+    values.viewAnchorMode !== 'centerOfMass'
+  ) {
+    return {
+      errors,
+      parsedValues: null,
+    };
   }
 
   BODY_IDS.forEach((bodyId) => {
@@ -131,8 +175,13 @@ function validateSetup(values: SetupFormValues) {
           return;
         }
 
-        if ((field === 'vx' || field === 'vy') && (result.value < -8 || result.value > 8)) {
-          errors.bodies[bodyId][field] = 'Use -8 to 8';
+        if (field === 'speed' && (result.value < 0 || result.value > 8)) {
+          errors.bodies[bodyId].speed = 'Use 0 to 8';
+          return;
+        }
+
+        if (field === 'angle' && (result.value < -180 || result.value > 180)) {
+          errors.bodies[bodyId].angle = 'Use -180 to 180';
           return;
         }
 
@@ -160,6 +209,7 @@ export default function App() {
 
   const [isRunning, setIsRunning] = useState(false);
   const [showDebugPanel, setShowDebugPanel] = useState(false);
+  const [statusMessage, setStatusMessage] = useState('');
   const [appliedSetupValues, setAppliedSetupValues] = useState<SetupValues>(
     initialSetupValues,
   );
@@ -187,12 +237,13 @@ export default function App() {
     return {
       ...baseValues,
       bodies: nextBodies.reduce((collection, body) => {
+        const velocity = polarFromVelocity(body.vx, body.vy);
         collection[body.id] = {
           mass: body.mass,
           x: body.x,
           y: body.y,
-          vx: body.vx,
-          vy: body.vy,
+          speed: velocity.speed,
+          angle: velocity.angle,
         };
         return collection;
       }, { ...baseValues.bodies }),
@@ -213,16 +264,19 @@ export default function App() {
       return;
     }
 
+    setStatusMessage('');
     setAppliedSetupValues(parsedValues);
     applySetup(parsedValues);
   }
 
   function handleReset() {
+    setStatusMessage('');
     applySetup(appliedSetupValues);
   }
 
   function handleRandomize() {
     const nextSetupValues = createRandomSetupValues();
+    setStatusMessage('');
     setAppliedSetupValues(nextSetupValues);
     setSetupFormValues(formatSetupValues(nextSetupValues));
     applySetup(nextSetupValues);
@@ -235,6 +289,13 @@ export default function App() {
     setSetupFormValues((current) => ({
       ...current,
       [field]: value,
+    }));
+  }
+
+  function handleViewAnchorModeChange(value: ViewAnchorMode) {
+    setSetupFormValues((current) => ({
+      ...current,
+      viewAnchorMode: value,
     }));
   }
 
@@ -267,7 +328,7 @@ export default function App() {
     <main className="app-shell">
       <header className="hero">
         <p className="eyebrow">Interactive Physics Study</p>
-        <h1>Three Body Lab</h1>
+        <h1>Three-body Lab</h1>
         <p className="hero-copy">
           A gravitational playground for three mutually attracting bodies,
           rendered as weighted spheres instead of anonymous points.
@@ -277,30 +338,40 @@ export default function App() {
       <ControlPanel
         isRunning={isRunning}
         showDebugPanel={showDebugPanel}
-        onToggleRun={() => setIsRunning((current) => !current)}
+        onToggleRun={() => {
+          setStatusMessage('');
+          setIsRunning((current) => !current);
+        }}
         onReset={handleReset}
         onRandomize={handleRandomize}
         onToggleDebugPanel={() => setShowDebugPanel((current) => !current)}
       />
 
+      {statusMessage ? <p className="setup-note">{statusMessage}</p> : null}
+
       <section className="canvas-card">
         <div className="canvas-copy">
           <p className="canvas-kicker">Motion Study</p>
-          <h2>Mass shows up twice here: in the equations and in the visual hierarchy.</h2>
+          <h2>Bodies are computed as point masses and displayed as mass-scaled spheres.</h2>
           <p>
-            Each body is still simulated as a point mass, but the display draws
-            it as a circular body whose radius grows with mass. That keeps the
-            scene legible and makes the dominant attractors immediately obvious.
+            Size is a visual cue for gravitational weight.
           </p>
         </div>
 
         <ThreeBodyCanvas
           initialBodies={simulationBodies}
           params={simulationParams}
+          viewAnchorMode={appliedSetupValues.viewAnchorMode}
           isRunning={isRunning}
           maxTrailPoints={MAX_TRAIL_POINTS}
           onDebugSnapshotChange={setDebugSnapshot}
           onBodiesCommit={handleBodiesCommit}
+          onEscapeThresholdExceeded={() => {
+            setIsRunning(false);
+            setStatusMessage(
+              'Simulation paused because a body moved beyond the escape threshold.',
+            );
+          }}
           width={CANVAS_WIDTH}
           height={CANVAS_HEIGHT}
         />
@@ -311,7 +382,13 @@ export default function App() {
         errors={setupErrors}
         isValid={Boolean(parsedValues)}
         isRunning={isRunning}
-        onGlobalChange={handleGlobalChange}
+        onGlobalChange={(field, value) => {
+          if (field === 'viewAnchorMode') {
+            handleViewAnchorModeChange(value as ViewAnchorMode);
+            return;
+          }
+          handleGlobalChange(field, value);
+        }}
         onBodyChange={handleBodyChange}
         onApply={handleApplySetup}
       />
