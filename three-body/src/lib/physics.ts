@@ -11,7 +11,7 @@ const BODY_IDS: BodyId[] = ['A', 'B', 'C'];
 export const DEFAULT_SETUP_VALUES: SetupValues = {
   gravitationalConstant: 0.8,
   softening: 12,
-  timeStep: 0.02,
+  timeStep: 0.03,
   bodies: {
     A: { mass: 2400, x: 0, y: 0, vx: 0, vy: -0.036 },
     B: { mass: 24, x: 220, y: 0, vx: 0, vy: 2.954 },

@@ -1,0 +1,141 @@
+name: Deploy Pages
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build double-pendulum
+        run: npm run build:double-pendulum
+
+      - name: Build three-body
+        run: npm run build:three-body
+
+      - name: Assemble Pages site
+        shell: bash
+        run: |
+          mkdir -p site/double-pendulum
+          mkdir -p site/three-body
+          cp -r double-pendulum/dist/. site/double-pendulum/
+          cp -r three-body/dist/. site/three-body/
+          cat > site/index.html <<'EOF'
+          <!doctype html>
+          <html lang="en">
+            <head>
+              <meta charset="UTF-8" />
+              <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+              <title>Simulation Lab</title>
+              <style>
+                :root {
+                  color-scheme: dark;
+                  font-family: Georgia, "Times New Roman", serif;
+                  background: #0f1720;
+                  color: #ecebe4;
+                }
+
+                * {
+                  box-sizing: border-box;
+                }
+
+                body {
+                  margin: 0;
+                  min-height: 100vh;
+                  display: grid;
+                  place-items: center;
+                  background:
+                    radial-gradient(circle at top, rgba(88, 181, 214, 0.16), transparent 32%),
+                    linear-gradient(180deg, #0b141c 0%, #16222d 100%);
+                }
+
+                main {
+                  width: min(720px, calc(100% - 32px));
+                  padding: 32px;
+                  border: 1px solid rgba(140, 201, 222, 0.18);
+                  border-radius: 20px;
+                  background: rgba(18, 30, 40, 0.62);
+                  box-shadow: 0 24px 60px rgba(6, 12, 18, 0.34);
+                }
+
+                h1 {
+                  margin: 0 0 12px;
+                  font-size: clamp(2.2rem, 5vw, 3.4rem);
+                  line-height: 1;
+                }
+
+                p {
+                  margin: 0 0 24px;
+                  color: #bcc8d2;
+                  font-size: 1rem;
+                }
+
+                ul {
+                  margin: 0;
+                  padding: 0;
+                  list-style: none;
+                }
+
+                a {
+                  display: inline-block;
+                  padding: 12px 18px;
+                  border: 1px solid rgba(140, 201, 222, 0.22);
+                  border-radius: 999px;
+                  background: rgba(18, 30, 40, 0.76);
+                  color: #ecebe4;
+                  text-decoration: none;
+                }
+              </style>
+            </head>
+            <body>
+              <main>
+                <h1>Simulation Lab</h1>
+                <p>Interactive mathematical and physics simulations published from a single repository.</p>
+                <ul>
+                  <li><a href="./double-pendulum/">Open Double Pendulum</a></li>
+                  <li><a href="./three-body/">Open Three Body</a></li>
+                </ul>
+              </main>
+            </body>
+          </html>
+          EOF
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: ./site
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

@@ -21,7 +21,7 @@ import type {
 
 const CANVAS_WIDTH = 720;
 const CANVAS_HEIGHT = 520;
-const MAX_TRAIL_POINTS = 900;
+const MAX_TRAIL_POINTS = 300;
 
 const BODY_IDS: BodyId[] = ['A', 'B', 'C'];
 

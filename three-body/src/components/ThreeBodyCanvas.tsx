@@ -27,6 +27,9 @@ interface ThreeBodyCanvasProps {
 }
 
 const BODY_COLORS = ['#f4c16d', '#8cc9de', '#ef8aa1'];
+const POSITION_MIN = -400;
+const POSITION_MAX = 400;
+const TRAIL_LAYER_COUNT = 8;
 
 interface Viewport {
   centerX: number;
@@ -55,15 +58,10 @@ function buildViewport(
   width: number,
   height: number,
   bodies: BodyState[],
-  trails: TrailPoint[][],
 ) {
   const anchorBody = bodies[0];
-  const points = bodies.flatMap((body, index) => [
-    { x: body.x, y: body.y },
-    ...trails[index],
-  ]);
-  const relativeXs = points.map((point) => Math.abs(point.x - anchorBody.x));
-  const relativeYs = points.map((point) => Math.abs(point.y - anchorBody.y));
+  const relativeXs = bodies.map((body) => Math.abs(body.x - anchorBody.x));
+  const relativeYs = bodies.map((body) => Math.abs(body.y - anchorBody.y));
   const spanX = Math.max(1, Math.max(...relativeXs) * 2);
   const spanY = Math.max(1, Math.max(...relativeYs) * 2);
   const padding = 80;
@@ -95,39 +93,105 @@ function hitRadius(mass: number, maxMass: number) {
   return Math.max(14, bodyRadius(mass, maxMass));
 }
 
+function clamp(value: number, minimum: number, maximum: number) {
+  return Math.min(maximum, Math.max(minimum, value));
+}
+
+function drawTrail(
+  context: CanvasRenderingContext2D,
+  trail: TrailPoint[],
+  color: string,
+) {
+  if (trail.length < 2) {
+    return;
+  }
+
+  context.save();
+  context.lineCap = 'round';
+  context.lineJoin = 'round';
+
+  for (let layerIndex = 0; layerIndex < TRAIL_LAYER_COUNT; layerIndex += 1) {
+    const startRatio = layerIndex / TRAIL_LAYER_COUNT;
+    const endRatio = (layerIndex + 1) / TRAIL_LAYER_COUNT;
+    const startIndex = Math.floor(startRatio * (trail.length - 1));
+    const endIndex = Math.max(
+      startIndex + 1,
+      Math.floor(endRatio * (trail.length - 1)),
+    );
+    const segment = trail.slice(startIndex, endIndex + 1);
+
+    if (segment.length < 2) {
+      continue;
+    }
+
+    const layerProgress = (layerIndex + 1) / TRAIL_LAYER_COUNT;
+    const alpha = 0.05 + Math.pow(layerProgress, 1.24) * 0.56;
+    const lineWidth = 0.6 + Math.pow(layerProgress, 1.08) * 2.35;
+
+    context.strokeStyle = color.replace('ALPHA', alpha.toFixed(3));
+    context.lineWidth = lineWidth;
+    context.shadowBlur =
+      layerIndex >= TRAIL_LAYER_COUNT - 3 ? 10 + layerIndex * 2 : 0;
+    context.shadowColor =
+      layerIndex >= TRAIL_LAYER_COUNT - 3
+        ? color.replace('ALPHA', (alpha * 0.58).toFixed(3))
+        : 'transparent';
+    context.beginPath();
+    context.moveTo(segment[0].x, segment[0].y);
+
+    let previousPoint = segment[0];
+
+    for (let index = 1; index < segment.length; index += 1) {
+      const currentPoint = segment[index];
+      const midpointX = (previousPoint.x + currentPoint.x) / 2;
+      const midpointY = (previousPoint.y + currentPoint.y) / 2;
+
+      context.quadraticCurveTo(
+        previousPoint.x,
+        previousPoint.y,
+        midpointX,
+        midpointY,
+      );
+
+      previousPoint = currentPoint;
+    }
+
+    const lastPoint = segment[segment.length - 1];
+    context.quadraticCurveTo(
+      previousPoint.x,
+      previousPoint.y,
+      lastPoint.x,
+      lastPoint.y,
+    );
+    context.stroke();
+  }
+
+  const tipPoint = trail[trail.length - 1];
+  context.fillStyle = color.replace('ALPHA', '0.82');
+  context.shadowBlur = 14;
+  context.shadowColor = color.replace('ALPHA', '0.44');
+  context.beginPath();
+  context.arc(tipPoint.x, tipPoint.y, 2.8, 0, Math.PI * 2);
+  context.fill();
+
+  context.restore();
+}
+
 function drawFrame(
   context: CanvasRenderingContext2D,
   width: number,
   height: number,
   bodies: BodyState[],
   trails: TrailPoint[][],
+  viewport: Viewport,
 ) {
   drawBackground(context, width, height);
 
-  const viewport = buildViewport(width, height, bodies, trails);
   const maxMass = Math.max(...bodies.map((body) => body.mass));
   const centerOfMass = calculateCenterOfMass(bodies);
 
   trails.forEach((trail, index) => {
-    if (trail.length < 2) {
-      return;
-    }
-
-    context.beginPath();
-    trail.forEach((point, pointIndex) => {
-      const x = toCanvasX(point.x, width, viewport.centerX, viewport.scale);
-      const y = toCanvasY(point.y, height, viewport.centerY, viewport.scale);
-
-      if (pointIndex === 0) {
-        context.moveTo(x, y);
-      } else {
-        context.lineTo(x, y);
-      }
-    });
-
-    context.strokeStyle = `${BODY_COLORS[index]}aa`;
-    context.lineWidth = 2;
-    context.stroke();
+    drawTrail(context, trail, `${BODY_COLORS[index]}AA`.toLowerCase().replace('aa', 'ALPHA'));
   });
 
   const centerX = toCanvasX(centerOfMass.x, width, viewport.centerX, viewport.scale);
@@ -196,13 +260,42 @@ export function ThreeBodyCanvas({
     centerY: initialBodies[0].y,
     scale: 1,
   });
+  const dragViewportRef = useRef<Viewport | null>(null);
   const dragBodyIndexRef = useRef<number | null>(null);
+
+  function recordTrailPoints(
+    bodies: BodyState[],
+    viewport: Viewport,
+    resetIndex?: number,
+  ) {
+    trailsRef.current = trailsRef.current.map((trail, index) => {
+      const body = bodies[index];
+      const nextPoint = {
+        x: toCanvasX(body.x, width, viewport.centerX, viewport.scale),
+        y: toCanvasY(body.y, height, viewport.centerY, viewport.scale),
+      };
+
+      if (resetIndex === index) {
+        return [nextPoint];
+      }
+
+      const nextTrail = trail.concat(nextPoint);
+      return nextTrail.slice(-maxTrailPoints);
+    });
+  }
 
   useEffect(() => {
     statesRef.current = cloneBodies(initialBodies);
-    trailsRef.current = initialBodies.map((body) => [{ x: body.x, y: body.y }]);
+    const viewport = buildViewport(width, height, initialBodies);
+    viewportRef.current = viewport;
+    trailsRef.current = initialBodies.map((body) => [
+      {
+        x: toCanvasX(body.x, width, viewport.centerX, viewport.scale),
+        y: toCanvasY(body.y, height, viewport.centerY, viewport.scale),
+      },
+    ]);
     onDebugSnapshotChange(buildSnapshot(statesRef.current, params));
-  }, [initialBodies, onDebugSnapshotChange, params]);
+  }, [height, initialBodies, maxTrailPoints, onDebugSnapshotChange, params, width]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -226,29 +319,22 @@ export function ThreeBodyCanvas({
       if (isRunning) {
         let nextBodies = statesRef.current;
 
-        for (let step = 0; step < 2; step += 1) {
+        for (let step = 0; step < 3; step += 1) {
           nextBodies = integrateBodies(nextBodies, params);
         }
 
         statesRef.current = nextBodies;
-        trailsRef.current = trailsRef.current.map((trail, index) => {
-          const nextTrail = trail.concat({
-            x: nextBodies[index].x,
-            y: nextBodies[index].y,
-          });
-          return nextTrail.slice(-maxTrailPoints);
-        });
-
-        onDebugSnapshotChange(buildSnapshot(nextBodies, params));
       }
 
-      const viewport = buildViewport(
-        width,
-        height,
-        statesRef.current,
-        trailsRef.current,
-      );
+      const viewport =
+        dragViewportRef.current ??
+        buildViewport(width, height, statesRef.current);
       viewportRef.current = viewport;
+
+      if (isRunning) {
+        recordTrailPoints(statesRef.current, viewport);
+        onDebugSnapshotChange(buildSnapshot(statesRef.current, params));
+      }
 
       drawFrame(
         renderingContext,
@@ -256,6 +342,7 @@ export function ThreeBodyCanvas({
         height,
         statesRef.current,
         trailsRef.current,
+        viewport,
       );
       animationFrameRef.current = window.requestAnimationFrame(render);
     }
@@ -281,8 +368,16 @@ export function ThreeBodyCanvas({
     const canvasX = ((clientX - rect.left) / rect.width) * width;
     const canvasY = ((clientY - rect.top) / rect.height) * height;
     const viewport = viewportRef.current;
-    const nextX = viewport.centerX + (canvasX - width / 2) / viewport.scale;
-    const nextY = viewport.centerY - (canvasY - height / 2) / viewport.scale;
+    const nextX = clamp(
+      viewport.centerX + (canvasX - width / 2) / viewport.scale,
+      POSITION_MIN,
+      POSITION_MAX,
+    );
+    const nextY = clamp(
+      viewport.centerY - (canvasY - height / 2) / viewport.scale,
+      POSITION_MIN,
+      POSITION_MAX,
+    );
 
     statesRef.current = statesRef.current.map((body, index) =>
       index === dragBodyIndex
@@ -294,9 +389,7 @@ export function ThreeBodyCanvas({
         : body,
     );
 
-    trailsRef.current = trailsRef.current.map((trail, index) =>
-      index === dragBodyIndex ? [{ x: nextX, y: nextY }] : trail,
-    );
+    recordTrailPoints(statesRef.current, viewport, dragBodyIndex);
 
     onDebugSnapshotChange(buildSnapshot(statesRef.current, params));
   }
@@ -326,6 +419,7 @@ export function ThreeBodyCanvas({
 
       if (distance <= radius) {
         dragBodyIndexRef.current = index;
+        dragViewportRef.current = viewport;
         canvas.setPointerCapture(event.pointerId);
         updateDraggedBody(event.clientX, event.clientY);
         return;
@@ -349,6 +443,7 @@ export function ThreeBodyCanvas({
 
     updateDraggedBody(event.clientX, event.clientY);
     dragBodyIndexRef.current = null;
+    dragViewportRef.current = null;
     onBodiesCommit(statesRef.current.map((body) => ({ ...body })));
 
     if (canvas.hasPointerCapture(event.pointerId)) {

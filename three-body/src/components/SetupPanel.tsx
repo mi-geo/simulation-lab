@@ -18,10 +18,26 @@ const FIELD_LABELS: Record<keyof BodyFormValues, string> = {
 
 const FIELD_HELPERS: Record<keyof BodyFormValues, string> = {
   mass: 'Relative mass. Larger values draw larger bodies and deepen gravity.',
-  x: 'Initial x position in world units.',
-  y: 'Initial y position in world units.',
+  x: 'Initial x position in world units (-400 to 400).',
+  y: 'Initial y position in world units (-400 to 400).',
   vx: 'Initial velocity along x.',
   vy: 'Initial velocity along y.',
+};
+
+const FIELD_MINIMUMS: Partial<Record<keyof BodyFormValues, number>> = {
+  mass: 1,
+  x: -400,
+  y: -400,
+  vx: -8,
+  vy: -8,
+};
+
+const FIELD_MAXIMUMS: Partial<Record<keyof BodyFormValues, number>> = {
+  mass: 5000,
+  x: 400,
+  y: 400,
+  vx: 8,
+  vy: 8,
 };
 
 function BodyField({
@@ -43,15 +59,12 @@ function BodyField({
 
   return (
     <label className={`setup-field${error ? ' setup-field-invalid' : ''}`}>
-      <span className="field-label">
-        {FIELD_LABELS[field]}
-      </span>
-      <span className="field-token">
-        Internal name: {bodyId}.{field}
-      </span>
+      <span className="field-label">{FIELD_LABELS[field]}</span>
       <input
         type="number"
         step={field === 'mass' ? '1' : '0.01'}
+        min={FIELD_MINIMUMS[field]}
+        max={FIELD_MAXIMUMS[field]}
         value={values[field]}
         disabled={isRunning}
         onChange={(event) => onChange(bodyId, field, event.target.value)}
@@ -104,7 +117,6 @@ export function SetupPanel({
           className={`setup-field${errors.gravitationalConstant ? ' setup-field-invalid' : ''}`}
         >
           <span className="field-label">Gravitational strength</span>
-          <span className="field-token">Internal name: gravitationalConstant</span>
           <input
             type="number"
             step="0.01"
@@ -122,7 +134,6 @@ export function SetupPanel({
 
         <label className={`setup-field${errors.softening ? ' setup-field-invalid' : ''}`}>
           <span className="field-label">Close-pass softening radius</span>
-          <span className="field-token">Internal name: softening</span>
           <input
             type="number"
             step="0.1"
@@ -138,7 +149,6 @@ export function SetupPanel({
 
         <label className={`setup-field${errors.timeStep ? ' setup-field-invalid' : ''}`}>
           <span className="field-label">Simulation speed step</span>
-          <span className="field-token">Internal name: timeStep</span>
           <input
             type="number"
             step="0.001"
