@@ -55,10 +55,16 @@ jobs:
               <meta charset="UTF-8" />
               <meta name="viewport" content="width=device-width, initial-scale=1.0" />
               <title>Simulation Lab</title>
+              <link rel="preconnect" href="https://fonts.googleapis.com" />
+              <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+              <link
+                href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600&family=Instrument+Serif:opsz@8..144&display=swap"
+                rel="stylesheet"
+              />
               <style>
                 :root {
                   color-scheme: dark;
-                  font-family: Georgia, "Times New Roman", serif;
+                  font-family: "Instrument Sans", "Segoe UI", sans-serif;
                   background: #0f1720;
                   color: #ecebe4;
                 }
@@ -88,6 +94,8 @@ jobs:
 
                 h1 {
                   margin: 0 0 12px;
+                  font-family: "Instrument Serif", Georgia, serif;
+                  font-weight: 400;
                   font-size: clamp(2.2rem, 5vw, 3.4rem);
                   line-height: 1;
                 }
