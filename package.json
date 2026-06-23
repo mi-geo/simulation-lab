@@ -1,0 +1,16 @@
+{
+  "name": "simulation-lab",
+  "private": true,
+  "workspaces": [
+    "double-pendulum",
+    "three-body"
+  ],
+  "scripts": {
+    "dev:double-pendulum": "npm --workspace @simulation-lab/double-pendulum run dev",
+    "build:double-pendulum": "npm --workspace @simulation-lab/double-pendulum run build",
+    "preview:double-pendulum": "npm --workspace @simulation-lab/double-pendulum run preview",
+    "dev:three-body": "npm --workspace @simulation-lab/three-body run dev",
+    "build:three-body": "npm --workspace @simulation-lab/three-body run build",
+    "preview:three-body": "npm --workspace @simulation-lab/three-body run preview"
+  }
+}
